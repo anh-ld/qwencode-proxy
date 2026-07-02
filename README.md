@@ -4,7 +4,11 @@ Local HTTP proxy between `qwen-code` and its model. Rewrites chat traffic via pl
 
 ## Install
 
-Requires [qwen-code](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`) and Go 1.24+.
+Requires [qwen-code](https://github.com/QwenLM/qwen-code) (`npm install -g @qwen-code/qwen-code`).
+
+Download a prebuilt binary from [Releases](https://github.com/anh-ld/qwencode-proxy/releases) — no Go needed. Extract and put it on your `PATH`.
+
+Or, with Go 1.24+:
 
 ```bash
 go install github.com/anh-ld/qwencode-proxy@latest
