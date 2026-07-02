@@ -1,0 +1,6 @@
+docs/
+.agents/
+skills-lock.json
+
+# build artifact
+/qwencode-proxy
