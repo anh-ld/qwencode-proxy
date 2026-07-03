@@ -26,6 +26,7 @@ qwencode-proxy config [-e]    # show / edit config
 ### Tips
 
 - Auto-detects upstream from `~/.qwen/settings.json`, backs it up, points `qwen` at `127.0.0.1:8788`.
+- Always launch via `qwencode-proxy`. Once set up, `qwen` alone points at the proxy port, so it errors with `fetch failed` unless the proxy is running (or restore with `qwencode-proxy off`).
 - Change port in `~/.config/qwencode-proxy/config.json`.
 - Optional alias: `alias qwen=qwencode-proxy`.
 - Port busy → change `port` in config.

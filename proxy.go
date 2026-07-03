@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -20,15 +21,53 @@ type proxy struct {
 	token    string
 	pipe     pipeline
 	client   *http.Client
+	up       *url.URL
+	baseRaw  string // upstream path with trailing slashes trimmed
 }
 
 func newProxy(cfg Config) *proxy {
+	up, err := url.Parse(cfg.Upstream)
+	if err != nil {
+		fatalf("bad upstream %q: %v", cfg.Upstream, err)
+	}
+	transport := &http.Transport{
+		DisableCompression: true,
+		DialContext:        idleConnDialer(streamIdleTimeout),
+	}
 	return &proxy{
 		upstream: cfg.Upstream,
 		token:    cfg.Token,
 		pipe:     pipeline{rules: compile(cfg)},
-		client:   &http.Client{Transport: &http.Transport{DisableCompression: true}},
+		client:   &http.Client{Transport: transport},
+		up:       up,
+		baseRaw:  strings.TrimRight(up.Path, "/"),
 	}
+}
+
+// streamIdleTimeout caps the gap between upstream bytes; tune from the field.
+const streamIdleTimeout = 30 * time.Second
+
+// idleConnDialer wraps the default dialer so each returned conn aborts a read after `idle` of silence.
+func idleConnDialer(idle time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dial := (&net.Dialer{}).DialContext
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &idleConn{Conn: c, idle: idle}, nil
+	}
+}
+
+type idleConn struct {
+	net.Conn
+	idle time.Duration
+}
+
+// Read slides the idle deadline forward before each read, so the stream lives as long as bytes keep flowing.
+func (c *idleConn) Read(b []byte) (int, error) {
+	_ = c.Conn.SetReadDeadline(time.Now().Add(c.idle))
+	return c.Conn.Read(b)
 }
 
 // healthValue: per-instance token (or marker) proving the listener is ours.
@@ -68,13 +107,12 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	up, err := url.Parse(p.upstream)
-	if err != nil {
-		http.Error(w, "bad upstream", http.StatusBadGateway)
-		return
+	target := *p.up
+	base := p.baseRaw
+	if (r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/")) && strings.HasSuffix(p.baseRaw, "/v1") {
+		base = strings.TrimSuffix(p.baseRaw, "/v1")
 	}
-	target := *up
-	target.Path = strings.TrimRight(up.Path, "/") + r.URL.Path
+	target.Path = base + r.URL.Path
 	target.RawQuery = r.URL.RawQuery
 
 	isChat := strings.HasSuffix(r.URL.Path, "/chat/completions")
@@ -95,7 +133,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	copyHeaders(req.Header, r.Header, "Accept-Encoding", "Content-Length", "Host")
 	req.Header.Set("Accept-Encoding", "identity") // force plain so content rules can match
-	req.Host = up.Host
+	req.Host = target.Host
 
 	resp, err := p.client.Do(req)
 	if err != nil {
