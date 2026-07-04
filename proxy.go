@@ -22,7 +22,8 @@ type proxy struct {
 	pipe     pipeline
 	client   *http.Client
 	up       *url.URL
-	baseRaw  string // upstream path with trailing slashes trimmed
+	baseRaw  string  // upstream path with trailing slashes trimmed
+	dump     *dumper // nil unless dumping is enabled
 }
 
 func newProxy(cfg Config) *proxy {
@@ -41,6 +42,7 @@ func newProxy(cfg Config) *proxy {
 		client:   &http.Client{Transport: transport},
 		up:       up,
 		baseRaw:  strings.TrimRight(up.Path, "/"),
+		dump:     newDumper(cfg),
 	}
 }
 
@@ -116,14 +118,20 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	target.RawQuery = r.URL.RawQuery
 
 	isChat := strings.HasSuffix(r.URL.Path, "/chat/completions")
-	var bodyReader io.Reader = r.Body // stream through untouched unless a request rule applies
-	if isChat && p.pipe.hasRequest() {
+	var bodyReader io.Reader = r.Body // stream through untouched unless a request rule or dump needs the bytes
+	if isChat && (p.pipe.hasRequest() || p.dump != nil) {
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusBadGateway)
 			return
 		}
-		bodyReader = bytes.NewReader(p.pipe.ApplyRequest(raw))
+		if p.pipe.hasRequest() {
+			raw = p.pipe.ApplyRequest(raw)
+		}
+		dumpURL := target
+		dumpURL.RawQuery = ""                            // strip query — some providers put the api key there
+		p.dump.section("REQUEST "+dumpURL.String(), raw) // no-op when dump is nil
+		bodyReader = bytes.NewReader(raw)
 	}
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), bodyReader)
@@ -150,14 +158,20 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var respSrc io.Reader = resp.Body // raw upstream bytes, tee'd to the dump before any rule touches them
+	if isChat && p.dump != nil {
+		p.dump.header("RESPONSE " + resp.Status)
+		respSrc = io.TeeReader(resp.Body, p.dump)
+	}
+
 	switch {
 	case !isChat || !p.pipe.hasResponse():
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, respSrc)
 		flush()
 	case strings.Contains(resp.Header.Get("Content-Type"), "event-stream"):
-		p.pipe.Stream(w, resp.Body, flush)
+		p.pipe.Stream(w, respSrc, flush)
 	default:
-		raw, _ := io.ReadAll(resp.Body)
+		raw, _ := io.ReadAll(respSrc)
 		_, _ = w.Write(p.pipe.Body(raw))
 		flush()
 	}
@@ -176,9 +190,10 @@ func ensureProxy(cfg Config) (stop func(), err error) {
 	if err != nil {
 		return nil, err
 	}
-	srv := &http.Server{Handler: newProxy(cfg), ReadHeaderTimeout: 10 * time.Second}
+	px := newProxy(cfg)
+	srv := &http.Server{Handler: px, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
-	return func() { _ = srv.Close() }, nil
+	return func() { _ = srv.Close(); px.dump.close() }, nil
 }
 
 type probeResult int

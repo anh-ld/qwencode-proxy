@@ -12,6 +12,7 @@ const (
 	ruleReplace      = "replace"
 	ruleInjectSystem = "inject-system"
 	ruleSetParam     = "set-param"
+	ruleRemoveParam  = "remove-param"
 )
 
 // Stateful streaming content transform; Feed in order, End flushes held tail.
@@ -174,6 +175,17 @@ func init() {
 		params := r.Params
 		return builtRule{applyRequest: func(m map[string]any) {
 			maps.Copy(m, params)
+		}}, true
+	})
+	register(ruleRemoveParam, func(r Rule) (builtRule, bool) {
+		if len(r.Keys) == 0 {
+			return builtRule{}, false
+		}
+		keys := r.Keys
+		return builtRule{applyRequest: func(m map[string]any) {
+			for _, k := range keys {
+				delete(m, k) // top-level only, like set-param
+			}
 		}}, true
 	})
 }

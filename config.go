@@ -19,13 +19,16 @@ type Rule struct {
 	Text     string         `json:"text,omitempty"`     // inject-system
 	Position string         `json:"position,omitempty"` // inject-system: prepend|append
 	Params   map[string]any `json:"params,omitempty"`   // set-param
+	Keys     []string       `json:"keys,omitempty"`     // remove-param
 }
 
 type Config struct {
-	Upstream string `json:"upstream"` // real endpoint, saved from settings.json at setup
-	Port     int    `json:"port"`
-	Token    string `json:"token,omitempty"` // per-instance secret proving a listener is ours
-	Rules    []Rule `json:"rules"`
+	Upstream     string `json:"upstream"` // real endpoint, saved from settings.json at setup
+	Port         int    `json:"port"`
+	Token        string `json:"token,omitempty"` // per-instance secret proving a listener is ours
+	Rules        []Rule `json:"rules"`
+	Dump         bool   `json:"dump,omitempty"`         // capture chat req/resp bodies to configDir/dump.log (env QP_DUMP=1 also enables)
+	DumpMaxBytes int    `json:"dumpMaxBytes,omitempty"` // cap on dump.log; <=0 uses default
 }
 
 // newToken: random per-instance secret proving the listener is ours; "" on failure.

@@ -79,6 +79,20 @@ func TestPipelineApplyRequest(t *testing.T) {
 	}
 }
 
+func TestRemoveParam(t *testing.T) {
+	on := true
+	p := pipeline{rules: compile(Config{Rules: []Rule{
+		{Type: ruleRemoveParam, Keys: []string{"top_p", "frequency_penalty"}, Enabled: &on},
+	}})}
+	out := string(p.ApplyRequest([]byte(`{"model":"x","top_p":0.9,"frequency_penalty":1,"temperature":0.2}`)))
+	if strings.Contains(out, "top_p") || strings.Contains(out, "frequency_penalty") {
+		t.Errorf("dropped keys still present: %s", out)
+	}
+	if !strings.Contains(out, `"model":"x"`) || !strings.Contains(out, "temperature") {
+		t.Errorf("untargeted keys should survive: %s", out)
+	}
+}
+
 // Candidate A's payoff: compile drives everything off the registry — unknown
 // types and inert configs drop out with no scattered switch to maintain.
 func TestCompileSkipsUnknownAndInert(t *testing.T) {

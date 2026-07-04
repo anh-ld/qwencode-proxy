@@ -40,9 +40,12 @@ Config (`~/.config/qwencode-proxy/config.json`):
 {
   "upstream": "https://dashscope.aliyuncs.com/compatible-mode/v1",
   "port": 8788,
+  "dump": false,
+  "dumpMaxBytes": 10485760,
   "rules": [
     { "type": "strip-pair",    "open": "<think>", "close": "</think>" },
     { "type": "set-param",     "params": { "model": "qwen-coder-plus" } },
+    { "type": "remove-param",  "keys": ["top_p", "frequency_penalty"] },
     { "type": "inject-system", "position": "append", "text": "Be concise." },
     { "type": "replace",       "find": "foo", "replace": "bar" }
   ]
@@ -53,10 +56,21 @@ All rules accept `"enabled": true|false` (default `true`). Unknown types skipped
 
 | Type             | Effect                              | Fields                                                                       |
 | ---------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
-| `strip-pair`     | Drop `<open>…</close>` from response | `open` (default `<think>`), `close` (default `</mm:think>`)                    |
+| `strip-pair`     | Drop `<open>…</close>` from response | `open` (default `<think>`), `close` (default `</think>`)                       |
 | `replace`        | Literal find/replace on response    | `find` (required), `replace` (default `""`)                                  |
 | `inject-system`  | Add a system message to request     | `text` (required), `position` (`"prepend"` default / `"append"`)             |
 | `set-param`      | Set fields on request body          | `params` (required, key/value object)                                        |
+| `remove-param`   | Delete fields from request body     | `keys` (required, list) — e.g. drop `top_p` a provider rejects with `400`     |
+
+## Debugging
+
+Capture chat request/response bodies to `~/.config/qwencode-proxy/dump.log`:
+
+```bash
+QP_DUMP=1 qwencode-proxy        # ad-hoc, or set "dump": true in config
+```
+
+Cap the file with `"dumpMaxBytes": N` (default 10 MiB); once full it stops writing — delete the file to reset. Use it to see the raw bytes a provider actually receives/returns when writing `remove-param` or `strip-pair` rules.
 
 ## Build & test
 
